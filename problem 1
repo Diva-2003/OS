@@ -1,0 +1,78 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+#define NUM_STUDENTS 3
+
+// define semaphores
+sem_t pen_sem, paper_sem, qp_sem, table_sem;
+
+void* teacher(void* arg) {
+    while (true) {
+        // randomly select two items
+        int item1 = rand() % 3;
+        int item2 = rand() % 3;
+        while (item2 == item1) item2 = rand() % 3; // make sure the items are different
+        sem_wait(&table_sem); // wait for the table to be available
+        sem_post(&((sem_t[]){pen_sem, paper_sem, qp_sem}[item1])); // signal the first item
+        sem_post(&((sem_t[]){pen_sem, paper_sem, qp_sem}[item2])); // signal the second item
+        sem_wait(&table_sem); // wait for the student to complete the assignment
+    }
+}
+
+void* student(void* arg) {
+    int id = *(int*)arg;
+    bool has_pen = false, has_paper = false, has_qp = false;
+    while (true) {
+        // check which item is needed
+        bool needs_pen = !has_pen;
+        bool needs_paper = !has_paper;
+        bool needs_qp = !has_qp;
+        // use a loop to wait on all the required semaphores
+        while (needs_pen || needs_paper || needs_qp) {
+            if (needs_pen) sem_wait(&pen_sem);
+            if (needs_paper) sem_wait(&paper_sem);
+            if (needs_qp) sem_wait(&qp_sem);
+            // check if the required item has been acquired
+            if (has_pen) needs_pen = false;
+            if (has_paper) needs_paper = false;
+            if (has_qp) needs_qp = false;
+        }
+        // do the assignment
+        printf("Student %d is completing the assignment\n", id);
+        has_pen = has_paper = has_qp = false;
+        sem_post(&table_sem); // signal the teacher that the assignment is complete
+    }
+}
+
+int main() {
+    // initialize the semaphores
+    sem_init(&pen_sem, 0, 0);
+    sem_init(&paper_sem, 0, 0);
+    sem_init(&qp_sem, 0, 0);
+    sem_init(&table_sem, 0, 1); // set table semaphore to 1 to indicate it is available
+
+    // create the threads
+    pthread_t threads[NUM_STUDENTS+1];
+    int ids[NUM_STUDENTS];
+    for (int i = 0; i < NUM_STUDENTS; i++) {
+        ids[i] = i+1;
+        pthread_create(&threads[i], NULL, student, &ids[i]);
+    }
+    pthread_create(&threads[NUM_STUDENTS], NULL, teacher, NULL);
+
+    // join the threads
+    for (int i = 0; i <= NUM_STUDENTS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // destroy the semaphores
+    sem_destroy(&pen_sem);
+    sem_destroy(&paper_sem);
+    sem_destroy(&qp_sem);
+    sem_destroy(&table_sem);
+
+    return 0;
+}
