@@ -1,0 +1,84 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+#define NUM_TEACHERS 10
+#define NUM_STUDENTS 20
+
+// define semaphores
+sem_t teacher_sem, student_sem;
+pthread_mutex_t mutex;
+
+int num_teachers_served = 0;
+
+void* teacher(void* arg) {
+    int id = *(int*)arg;
+    printf("Teacher %d has arrived\n", id);
+    sem_wait(&teacher_sem); // join the teacher queue
+    pthread_mutex_lock(&mutex);
+    if (num_teachers_served > 0) {
+        num_teachers_served--;
+        printf("Teacher %d is getting service\n", id);
+        sem_post(&teacher_sem); // signal the next teacher in the queue
+    } else {
+        printf("Teacher %d is waiting for service\n", id);
+        pthread_mutex_unlock(&mutex);
+        sem_wait(&student_sem); // wait for a student to signal
+        num_teachers_served--;
+        printf("Teacher %d is getting service\n", id);
+        sem_post(&teacher_sem); // signal the next teacher in the queue
+    }
+    pthread_mutex_unlock(&mutex);
+}
+
+void* student(void* arg) {
+    int id = *(int*)arg;
+    printf("Student %d has arrived\n", id);
+    sem_wait(&student_sem); // join the student queue
+    pthread_mutex_lock(&mutex);
+    if (num_teachers_served < 0) {
+        printf("Student %d is getting service\n", id);
+        num_teachers_served++;
+        sem_post(&student_sem); // signal the next student in the queue
+    } else {
+        printf("Student %d is waiting for service\n", id);
+        num_teachers_served++;
+        sem_post(&student_sem); // signal the next student in the queue
+        sem_wait(&teacher_sem); // wait for a teacher to signal
+    }
+    pthread_mutex_unlock(&mutex);
+}
+
+int main() {
+    // initialize the semaphores
+    sem_init(&teacher_sem, 0, 0);
+    sem_init(&student_sem, 0, 0);
+    pthread_mutex_init(&mutex, NULL);
+
+    // create the threads
+    pthread_t threads[NUM_TEACHERS+NUM_STUDENTS];
+    int ids[NUM_TEACHERS+NUM_STUDENTS];
+    for (int i = 0; i < NUM_TEACHERS; i++) {
+        ids[i] = i+1;
+        pthread_create(&threads[i], NULL, teacher, &ids[i]);
+        num_teachers_served++;
+    }
+    for (int i = NUM_TEACHERS; i < NUM_TEACHERS+NUM_STUDENTS; i++) {
+        ids[i] = i-NUM_TEACHERS+1;
+        pthread_create(&threads[i], NULL, student, &ids[i]);
+    }
+
+    // join the threads
+    for (int i = 0; i < NUM_TEACHERS+NUM_STUDENTS; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // destroy the semaphores and mutex
+    sem_destroy(&teacher_sem);
+    sem_destroy(&student_sem);
+    pthread_mutex_destroy(&mutex);
+
+    return 0;
+}
